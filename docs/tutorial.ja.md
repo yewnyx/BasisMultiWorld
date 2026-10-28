@@ -201,6 +201,8 @@ Basis はブラウザでも動きます。ブラウザは UDP を送れないた
    を実行します。`down` は最初の1回だけ必要です。compose のネットワークが固定サブネットになり、
    ワールドはそこからの情報だけを信用してプレイヤーの実アドレスを知るためです。証明書は
    `sudo docker compose logs caddy | grep "certificate obtained"` で確認できます。
+   Caddy は起動時にしか設定ファイルを読まないので、あとで `configure.sh` を再実行したときは
+   `sudo docker compose exec -w /etc/caddy caddy caddy reload` で読み直させてください。
 4. **Web クライアントを置きます。** 上流の CI がコミットごとにビルドしています。自分の `BASIS_REF` に対応する
    `compilation.yml` の実行から `Basis-Client-WebGL` アーティファクトをダウンロードします。例：
    `gh run download <run-id> -R BasisVR/Basis -n Basis-Client-WebGL -D web`。
@@ -221,7 +223,7 @@ Basis はブラウザでも動きます。ブラウザは UDP を送れないた
 6. **ワールドとプロップを Web 向けにもビルドします。** SDK で WebGL プラットフォームを含めてください。
    WebGL のセクションがないバンドルはブラウザで読み込めません。
 
-Web クライアントには WebGPU と 64 ビット WebAssembly が必要です。つまりデスクトップ版の Chrome か Edge です。
+Web クライアントには WebGPU と 64 ビット WebAssembly が必要です。つまりデスクトップ版の Chrome、Edge、Firefox です（Firefox は Windows で確認済み）。
 プレイヤーは `https://play.worlds.example.com/?connection=forest.worlds.example.com` で参加します。
 `WEB_CLIENT_URL` を設定していれば、ワールド名を開くだけで参加できます。
 
@@ -235,7 +237,7 @@ Web クライアントには WebGPU と 64 ビット WebAssembly が必要です
 | 「サーバーに保存」が失敗する | `initialresources` が書き込み可能である必要があります。上流付属の compose は読み取り専用でマウントしています。 |
 | まったく接続できない | ファイアウォールで UDP ポートが開いていないか、Cloudflare のプロキシがオンになっています。 |
 | Web：初回だけ「Set a username before joining a server」と出る | 上流の既知の問題です。`?connection=` 付きのリンクは、プレイヤー名が決まる前に接続しようとします。一度 Servers メニューで名前を設定して参加すれば、ブラウザが覚えます。リンクに `&name=Guest` を付けても回避できます。 |
-| Web：「Your browser does not support WebAssembly Memory64」と出る | 上流の Web ビルドは 64 ビットの WebAssembly です。iPhone・iPad のブラウザはすべて WebKit で動いていて、これを実行できません。Safari も同様です。デスクトップ版の Chrome か Edge を使ってください。 |
+| Web：「Your browser does not support WebAssembly Memory64」と出る | 上流の Web ビルドは 64 ビットの WebAssembly です。iPhone・iPad のブラウザはすべて WebKit で動いていて、これを実行できません。Safari も同様です。デスクトップ版の Chrome、Edge、Firefox を使ってください。 |
 | Web：接続はできるがワールドが表示されない | バンドルに WebGL のセクションがないか、置き場所が CORS を許可していません（ブラウザのコンソールを確認してください）。 |
 | Caddy が証明書を取得できない | TCP 80 か 443 が閉じているか、その名前がこのサーバーを指していません。証明書が取得されるのは `worlds.conf` にある名前だけです。 |
 
