@@ -1,0 +1,4 @@
+.env
+basis/
+docker-compose.yml
+worlds/

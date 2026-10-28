@@ -1,0 +1,26 @@
+# BasisMultiWorld
+
+[日本語](README.ja.md)
+
+Run several [Basis](https://github.com/BasisVR/Basis) worlds on one small server, each under its
+own name (`forest.worlds.example.com`), using DNS SRV records. Players type a name, never a port.
+
+- **One file describes the worlds** (`worlds.conf`). `configure.sh` turns it into the Docker
+  Compose file and each server's world config.
+- **Basis isn't forked.** The server is built from a pinned commit of upstream `Basis Server/`.
+- **DNS records are generated** for you to import.
+- **Optional extras:** portals between worlds (a tested prop script) and per-world admin dashboards.
+
+**Start here: [the tutorial](docs/tutorial.md).**
+
+```sh
+cp .env.example .env && chmod 600 .env     # fill it in
+$EDITOR worlds.conf                        # one line per world; the first one is the hub, on 4296
+./fetch-basis.sh && ./configure.sh && sudo docker compose up -d --build
+./dns-records.sh <server-ipv4> > records.txt   # import into your DNS (DNS-only, no proxy)
+```
+
+Players need a Basis client built from `experimental-branch-major-changes` at `41789fb7d` or
+later for SRV lookups. Older clients still connect, but always land in the hub.
+
+MIT licensed. See [LICENSE](LICENSE).
