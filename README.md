@@ -23,4 +23,11 @@ $EDITOR worlds.conf                        # one line per world; the first one i
 Players need a Basis client built from `experimental-branch-major-changes` at `41789fb7d` or
 later for SRV lookups. Older clients still connect, but always land in the hub.
 
+## AI disclosure
+
+This repository's scripts, configuration and documentation, including the Japanese translation,
+were written with the help of an AI coding assistant. The maintainer directs, reviews and stands
+behind every change. As in Basis's [AI.md](https://github.com/BasisVR/Basis/blob/developer/AI.md),
+individual commits aren't tagged; this note is the disclosure. Corrections to the Japanese are welcome.
+
 MIT licensed. See [LICENSE](LICENSE).
