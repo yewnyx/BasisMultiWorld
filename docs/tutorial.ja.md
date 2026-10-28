@@ -235,6 +235,7 @@ Web クライアントには WebGPU と 64 ビット WebAssembly が必要です
 | 「サーバーに保存」が失敗する | `initialresources` が書き込み可能である必要があります。上流付属の compose は読み取り専用でマウントしています。 |
 | まったく接続できない | ファイアウォールで UDP ポートが開いていないか、Cloudflare のプロキシがオンになっています。 |
 | Web：初回だけ「Set a username before joining a server」と出る | 上流の既知の問題です。`?connection=` 付きのリンクは、プレイヤー名が決まる前に接続しようとします。一度 Servers メニューで名前を設定して参加すれば、ブラウザが覚えます。リンクに `&name=Guest` を付けても回避できます。 |
+| Web：「Your browser does not support WebAssembly Memory64」と出る | 上流の Web ビルドは 64 ビットの WebAssembly です。iPhone・iPad のブラウザはすべて WebKit で動いていて、これを実行できません。Safari も同様です。デスクトップ版の Chrome か Edge を使ってください。 |
 | Web：接続はできるがワールドが表示されない | バンドルに WebGL のセクションがないか、置き場所が CORS を許可していません（ブラウザのコンソールを確認してください）。 |
 | Caddy が証明書を取得できない | TCP 80 か 443 が閉じているか、その名前がこのサーバーを指していません。証明書が取得されるのは `worlds.conf` にある名前だけです。 |
 

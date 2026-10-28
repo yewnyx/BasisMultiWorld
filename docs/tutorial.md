@@ -242,6 +242,7 @@ if `WEB_CLIENT_URL` is set.
 | "Save to server" fails | `initialresources` must be writable. The stock upstream compose file mounts it read-only. |
 | Players can't connect at all | The UDP port isn't open in the firewall, or Cloudflare's proxy is on for the record. |
 | Web: "Set a username before joining a server" on the first visit | A known upstream issue: a `?connection=` link connects before the player has a name. Set a name and join once from the Servers menu; the browser remembers it. Adding `&name=Guest` to links also avoids it. |
+| Web: "Your browser does not support WebAssembly Memory64" | Upstream's web build is 64-bit WebAssembly. Every browser on iPhone and iPad uses WebKit, which can't run it, and Safari can't either. Use desktop Chrome or Edge. |
 | Web: connected, but the world never appears | The bundle has no WebGL section, or its host doesn't allow CORS (check the browser console). |
 | Caddy gets no certificate | TCP 80 or 443 is closed, or the name doesn't point at this server. Only names from `worlds.conf` get certificates. |
 
