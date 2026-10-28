@@ -19,7 +19,12 @@ FNR == NR {
     sub(/\r$/, "", line)
     if (line ~ /^[ \t]*(#|$)/) next
     eq = index(line, "=")
-    if (eq > 1) env[trim(substr(line, 1, eq - 1))] = substr(line, eq + 1)
+    if (eq < 2) next
+    value = substr(line, eq + 1)
+    # Same quoting as docker compose's .env: a value wrapped in matching quotes loses them. Single
+    # quotes are how a password containing "$" stays literal for compose too.
+    if (length(value) >= 2 && (value ~ /^'.*'$/ || value ~ /^".*"$/)) value = substr(value, 2, length(value) - 2)
+    env[trim(substr(line, 1, eq - 1))] = value
     next
 }
 

@@ -2,6 +2,10 @@
 
 [日本語](README.ja.md)
 
+> **Status: snapshot (2026-10-28).** Built and tested against Basis `2f5b3e106`. This isn't
+> maintained on a schedule, and Basis moves fast, so check upstream before relying on it. Issues
+> and pull requests are welcome but may wait.
+
 Run several [Basis](https://github.com/BasisVR/Basis) worlds on one small server, each under its
 own name (`forest.worlds.example.com`), using DNS SRV records. Players type a name, never a port.
 
