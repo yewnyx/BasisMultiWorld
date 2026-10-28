@@ -38,6 +38,9 @@ Engine with the compose plugin.
 
 ## 2. Get this repository and describe your worlds
 
+On GitHub, click **Use this template** to make your own copy (it starts with no history), then
+clone your copy onto the server:
+
 ```sh
 git clone https://github.com/<you>/BasisMultiWorld.git basis-worlds
 cd basis-worlds

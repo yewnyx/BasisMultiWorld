@@ -37,6 +37,8 @@ Docker Engine と compose プラグインをインストールします。
 
 ## 2. リポジトリの取得とワールドの記述
 
+GitHub で **Use this template** を押して自分用のコピー（履歴なし）を作り、サーバーにクローンします。
+
 ```sh
 git clone https://github.com/<you>/BasisMultiWorld.git basis-worlds
 cd basis-worlds
