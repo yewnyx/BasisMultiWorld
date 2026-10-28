@@ -1,5 +1,6 @@
 # Reads .env (first file) and worlds.conf (second file). If every line is valid, writes
-# docker-compose.yml and worlds/<slug>/initialresources/world.xml; otherwise writes nothing.
+# docker-compose.yml and worlds/<slug>/initialresources/world.xml, plus caddy/Caddyfile and each
+# world's config/transports/websocket.xml when WEB_PLAYERS=yes; otherwise writes nothing.
 # Called by configure.sh, which creates the folders first.
 
 # Literal (non-regex) replace, so passwords and names never need escaping rules of their own.
@@ -13,6 +14,29 @@ function xml(s) { return put(put(put(put(s, "&", "&amp;"), "<", "&lt;"), ">", "&
 function yaml(s) { return "'" put(put(s, "'", "''"), "$", "$$") "'" }
 function fail(msg) { errors = errors "worlds.conf:" FNR ": " msg "\n" }
 function trim(s) { sub(/^[ \t\r]+/, "", s); sub(/[ \t\r]+$/, "", s); return s }
+# Every name that reaches world i by name: the hub (first world) also answers on the zone itself
+# and on the SRV target host.
+function names(i, port,    p, s) {
+    p = port == "" ? "" : ":" port
+    s = slugs[i] "." zone p
+    if (i == 1) s = zone p ", " s ", " host "." zone p
+    return s
+}
+# Sets TrustedProxies in an existing websocket.xml (the server adds every other setting) or writes
+# a minimal one. Written through a temp file: the server may own the old file.
+function trusted(path,    content, line, have, tmp) {
+    content = ""; have = 0
+    while ((getline line < path) > 0) { content = content line "\n"; have = 1 }
+    close(path)
+    if (!have) content = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<BasisWebSocketTransportConfig>\n</BasisWebSocketTransportConfig>\n"
+    if (content ~ /<TrustedProxies>[^<]*<\/TrustedProxies>/) sub(/<TrustedProxies>[^<]*<\/TrustedProxies>/, "<TrustedProxies>" proxyNet "</TrustedProxies>", content)
+    else if (content ~ /<TrustedProxies[ \t]*\/>/) sub(/<TrustedProxies[ \t]*\/>/, "<TrustedProxies>" proxyNet "</TrustedProxies>", content)
+    else sub(/<\/BasisWebSocketTransportConfig>/, "  <TrustedProxies>" proxyNet "</TrustedProxies>\n</BasisWebSocketTransportConfig>", content)
+    tmp = path ".tmp"
+    printf "%s", content > tmp
+    close(tmp)
+    if (system("mv -f '" tmp "' '" path "'") != 0) errors = errors path ": couldn't write\n"
+}
 
 FNR == NR {
     line = $0
@@ -55,6 +79,19 @@ END {
     if (env["UNLOCK_PASSWORD"] == "") {
         for (i = 1; i <= count; i++) if (env["UNLOCK_PASSWORD_" varOf[i]] == "") { errors = errors ".env: UNLOCK_PASSWORD (or UNLOCK_PASSWORD_" varOf[i] ") is empty\n"; break }
     }
+    web = env["WEB_PLAYERS"] == "yes"
+    if (env["WEB_PLAYERS"] != "" && env["WEB_PLAYERS"] != "yes" && env["WEB_PLAYERS"] != "no") errors = errors ".env: WEB_PLAYERS must be yes or no\n"
+    zone = tolower(env["DNS_ZONE"]); sub(/\.$/, "", zone)
+    host = env["DNS_HOST"] == "" ? "vm1" : tolower(env["DNS_HOST"])
+    proxyNet = env["PROXY_NET"] == "" ? "172.30.42.0/24" : env["PROXY_NET"]
+    webClient = env["WEB_CLIENT_URL"]
+    if (web) {
+        if (zone !~ /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/) errors = errors ".env: WEB_PLAYERS=yes needs DNS_ZONE set to a domain name (certificates are issued for it)\n"
+        if (host !~ /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/) errors = errors ".env: DNS_HOST must be a single DNS label\n"
+        if (proxyNet !~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\/[0-9]+$/) errors = errors ".env: PROXY_NET must be an IPv4 subnet like 172.30.42.0/24\n"
+        if (webClient != "" && (webClient !~ /^https:\/\/[^ \t?#{}]+$/)) errors = errors ".env: WEB_CLIENT_URL must be an https:// URL without a query\n"
+        for (i = 1; i <= count; i++) if (portOf[i] == 80 || portOf[i] == 443) errors = errors "worlds.conf: port " portOf[i] " is needed by Caddy\n"
+    }
     if (errors != "") { printf "%s", errors > "/dev/stderr"; exit 1 }
     if (portOf[1] != 4296) printf "note: the first world (%s) is the hub but isn't on port 4296; clients that miss the SRV record connect to <name>:4296.\n", slugs[1] > "/dev/stderr"
 
@@ -92,6 +129,11 @@ END {
     print "  BasisFirstAdmin: ${BASIS_FIRST_ADMIN:-}" > out
     print "  # The REST API is used only by the optional dashboards; an empty ApiKey keeps it off." > out
     print "  ApiEnabled: true" > out
+    if (web) {
+        print "  # UDP for native clients, plus WebSocket on the same port number over TCP. That TCP port isn't" > out
+        print "  # published: web players reach it through the caddy service." > out
+        print "  NetworkStackId: litenetlib,websocket" > out
+    }
     print "" > out
     print "# Optional dashboard per world (docker compose --profile dashboard up -d). Its admin pages have" > out
     print "# no login and accept any origin: keep the ports on loopback, never publish them." > out
@@ -125,6 +167,27 @@ END {
         print "      - ./worlds/" s "/initialresources:/app/initialresources" > out
         print "      - ./worlds/" s "/config:/app/config" > out
         print "      - ./worlds/" s "/storage:/app/storage" > out
+        print "      # What admins add under Admin > Default library; unmounted, it's lost when the container is recreated." > out
+        print "      - ./worlds/" s "/defaultlibrary:/app/defaultlibrary" > out
+        print "" > out
+    }
+    if (web) {
+        print "  # TLS front for web players: routes each world name to its world's WebSocket listener, the way" > out
+        print "  # the SRV records do for UDP. Certificates are kept in caddy/data. See caddy/Caddyfile." > out
+        print "  caddy:" > out
+        print "    image: caddy:2.11.7-alpine" > out
+        print "    container_name: basis-caddy" > out
+        print "    restart: unless-stopped" > out
+        print "    ports:" > out
+        print "      - \"80:80/tcp\"" > out
+        print "      - \"443:443/tcp\"" > out
+        print "      - \"4296:4296/tcp\"" > out
+        for (i = 1; i <= count; i++) if (portOf[i] != 4296) print "      - \"" portOf[i] ":" portOf[i] "/tcp\"" > out
+        print "    volumes:" > out
+        print "      - ./caddy:/etc/caddy:ro" > out
+        print "      - ./caddy/data:/data" > out
+        print "      - ./caddy/config:/config" > out
+        print "    logging: *logging" > out
         print "" > out
     }
     for (i = 1; i <= count; i++) {
@@ -142,6 +205,15 @@ END {
         print "      API_URL_BASE: http://localhost:10667" > out
         print "      API_BEARER_TOKEN: ${" v "_API_KEY:-}" > out
         if (i < count) print "" > out
+    }
+    if (web) {
+        print "" > out
+        print "networks:" > out
+        print "  default:" > out
+        print "    ipam:" > out
+        print "      config:" > out
+        print "        # Pinned: every world trusts X-Forwarded-For only from this network (PROXY_NET in .env)." > out
+        print "        - subnet: " proxyNet > out
     }
     close(out)
 
@@ -163,6 +235,52 @@ END {
         print "</BasisLoadableConfiguration>" > x
         close(x)
         printf "world %-12s UDP %s  %s\n", slugs[i], portOf[i], urlOf[i]
+    }
+
+    if (web) {
+        c = "caddy/Caddyfile"
+        print "# Generated by configure.sh from worlds.conf and .env; changes made here are overwritten." > c
+        print "#" > c
+        print "# TLS front for web players. A browser can only open wss:// from an https:// page and can't look" > c
+        print "# up SRV records, so a web client turns a plain world name into wss://<name>:4296/. On 443 and" > c
+        print "# 4296 each name goes to its own world, the way the SRV records do for UDP; on the other world" > c
+        print "# ports the port decides, as for UDP. Certificates come from Let's Encrypt for exactly these" > c
+        print "# names, so TCP 80 and 443 must be open." > c
+        print "{" > c
+        print "\tservers {" > c
+        print "\t\t# No HTTP/3: UDP 443 isn't open." > c
+        print "\t\tprotocols h1 h2" > c
+        print "\t}" > c
+        print "}" > c
+        print "" > c
+        print "# Arguments: the world's listener, and the address the web client should join." > c
+        print "(world) {" > c
+        if (webClient != "") {
+            print "\t# A browser opening the address lands in the web client, set to join this world." > c
+            print "\t@page header Accept *text/html*" > c
+            print "\tredir @page " webClient "?connection={args[1]} 302" > c
+        }
+        print "\treverse_proxy {args[0]}" > c
+        print "}" > c
+        for (i = 1; i <= count; i++) {
+            print "" > c
+            print names(i, "") ", " names(i, "4296") " {" > c
+            print "\timport world " slugs[i] ":" portOf[i] " {host}" > c
+            print "}" > c
+        }
+        for (i = 1; i <= count; i++) {
+            if (portOf[i] == 4296) continue
+            all = ""
+            for (j = 1; j <= count; j++) all = all (all == "" ? "" : ", ") names(j, portOf[i])
+            print "" > c
+            print all " {" > c
+            print "\timport world " slugs[i] ":" portOf[i] " {host}:" portOf[i] > c
+            print "}" > c
+        }
+        close(c)
+        for (i = 1; i <= count; i++) trusted("worlds/" slugs[i] "/config/transports/websocket.xml")
+        if (errors != "") { printf "%s", errors > "/dev/stderr"; exit 1 }
+        print "wrote caddy/Caddyfile (web players on: open TCP 80, 443, 4296 and the world ports)"
     }
     print "wrote docker-compose.yml"
 }

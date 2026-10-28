@@ -33,6 +33,7 @@ port.
 ## 1. Prepare the server
 
 Open the UDP port of every world in the firewall: 4296 for the first world, then one more per world.
+If you'll let web players in (section 9), also open TCP 80, 443, 4296 and every world port.
 Open nothing else to the public; reach SSH through a VPN (such as Tailscale) if you can. Install Docker
 Engine with the compose plugin.
 
@@ -165,16 +166,71 @@ and an access rule limited to your own devices.
   ```sh
   sudo docker compose stop && sudo ./add-admin.sh did:key:z6Mk... && sudo docker compose up -d
   ```
+- **Default library:** avatars and props an admin adds under Admin > Default library in the
+  client are offered in every visitor's Library while they're on that world (nobody's avatar is
+  changed). Each world keeps its own list as XML files in `worlds/<slug>/defaultlibrary/`. To give
+  every world the same list, copy the files across and run `sudo docker compose restart`; the list
+  is read at startup.
 - **Backups:** everything worth keeping is `.env` plus `worlds/*/config` (admins, permissions),
-  `worlds/*/storage` (player saves) and `worlds/*/initialresources` (props saved to the server).
-  It's only kilobytes. Back it up daily (restic works well), and keep it on a disk that survives
-  rebuilding the server.
+  `worlds/*/storage` (player saves), `worlds/*/initialresources` (props saved to the server) and
+  `worlds/*/defaultlibrary`. It's only kilobytes. Back it up daily (restic works well), and keep it
+  on a disk that survives rebuilding the server.
 - **Updating Basis:** change `BASIS_REF` in `.env`, then run
   `./fetch-basis.sh && sudo docker compose up -d --build`.
 - **Replacing a world bundle:** both your CDN and the Basis client cache by URL. The client never
   checks for a newer file under the same name. Either upload under a new file name and update
   `worlds.conf`, or purge your CDN and accept that players who already loaded the world may keep the
   old copy.
+
+## 9. Optional: web players
+
+Basis also runs in a browser. Browsers can't send UDP, so web players connect over WebSocket, and a
+page served over `https://` may only open `wss://`. With this turned on:
+
+- **Every world also listens on WebSocket** through the
+  [Basis-TCP-Transport-Package](https://github.com/dooly123/Basis-TCP-Transport-Package), which
+  `fetch-basis.sh` builds into the server. That listener is internal.
+- **A [Caddy](https://caddyserver.com) container is the public side.** It gets Let's Encrypt
+  certificates for your world names and sends each name to its world. A browser can't look up SRV
+  records, so the web client turns a plain name into `wss://<name>:4296/`. Caddy answers on 4296 (and
+  443) and routes by name, so typing a world's name or walking through a portal works the same in a
+  browser. On the other world ports it routes by port, like UDP.
+- **Native clients can use it too:** `wss://forest.worlds.example.com` works on networks that block UDP.
+
+Turning it on:
+
+1. **In `.env`,** set `WEB_PLAYERS=yes` (`DNS_ZONE` must be your real domain). Optionally set
+   `WEB_CLIENT_URL` to where you host the web client (step 4). Then opening
+   `https://forest.worlds.example.com` in a browser redirects to the client, set to join that world.
+2. **Open TCP** 80, 443, 4296 and every world port in the firewall. Port 80 is for the certificates.
+3. **Apply it.** `./configure.sh && sudo docker compose down && sudo docker compose up -d`. The `down`
+   is needed once, because the compose network gets a fixed subnet that the worlds trust for players'
+   real addresses. Check the certificates with
+   `sudo docker compose logs caddy | grep "certificate obtained"`.
+4. **Host the web client.** Upstream CI builds one for every commit: download the `Basis-Client-WebGL`
+   artifact of the `compilation.yml` run for your `BASIS_REF`, for example
+   `gh run download <run-id> -R BasisVR/Basis -n Basis-Client-WebGL -D web`. Artifacts expire after
+   about 90 days, so keep a copy.
+   - **Serve it from a CDN or static host under its own `https://` name,** such as
+     `play.worlds.example.com`, not from the Basis server. It's about 120 MB, and a game server's
+     bandwidth to distant players can be poor.
+   - **Keep it on that one address.** The browser stores the client's settings and cache per site.
+   - **Headers it needs:** `Content-Encoding: br` on `*.unityweb`, and `Content-Type: application/wasm`
+     on `*.wasm.unityweb`. On Bunny, set these with edge rules on a Request URL condition; Bunny's File
+     Extension condition only sees the last extension. COOP/COEP aren't needed (the build has no threads).
+5. **Allow CORS where your bundles are hosted.** The web client fetches `.BEE` files from another site:
+   - `Access-Control-Allow-Origin: *` (fine for public bundles)
+   - `Access-Control-Allow-Headers: Range, If-None-Match, If-Modified-Since`
+   - `Access-Control-Expose-Headers: Content-Range, ETag`
+
+   The browser's `OPTIONS` preflight must get a 2xx answer, not 405. Set these in exactly one place: two
+   `Access-Control-Allow-Origin` headers (for example from a CDN and a proxy in front of it) break CORS.
+6. **Build your worlds and props for the web.** Include the WebGL platform in the SDK. A bundle without
+   a WebGL section can't load in a browser.
+
+The web client needs WebGPU and 64-bit WebAssembly: desktop Chrome or Edge. Players join with
+`https://play.worlds.example.com/?connection=forest.worlds.example.com`, or just open the world's name
+if `WEB_CLIENT_URL` is set.
 
 ## Troubleshooting
 
@@ -185,6 +241,9 @@ and an access rule limited to your own devices.
 | `curl localhost:1066x/health` returns 404 or no answer | Run `configure.sh` again: the generated file sets `HealthCheckHost: "*"`. The default `localhost` doesn't work in containers. |
 | "Save to server" fails | `initialresources` must be writable. The stock upstream compose file mounts it read-only. |
 | Players can't connect at all | The UDP port isn't open in the firewall, or Cloudflare's proxy is on for the record. |
+| Web: "Set a username before joining a server" on the first visit | A known upstream issue: a `?connection=` link connects before the player has a name. Set a name and join once from the Servers menu; the browser remembers it. Adding `&name=Guest` to links also avoids it. |
+| Web: connected, but the world never appears | The bundle has no WebGL section, or its host doesn't allow CORS (check the browser console). |
+| Caddy gets no certificate | TCP 80 or 443 is closed, or the name doesn't point at this server. Only names from `worlds.conf` get certificates. |
 
 ## How the SRV lookup behaves
 
@@ -196,11 +255,16 @@ and an access rule limited to your own devices.
 - **No record:** the client connects to `<name>:4296`. With the wildcard A record, an unknown or
   failed name ends up in the hub.
 - **Caching:** answers are cached for the record's TTL, at most 5 minutes.
+- **Web clients:** a browser can't send DNS packets, so the lookup fails quietly and the client
+  connects to `<name>:4296`. With web players on, Caddy's routing by name stands in for SRV.
 
 ## Credits
 
 - [Basis](https://github.com/BasisVR/Basis) by BasisVR (MIT). This repository only builds its server.
 - [MarusansiBasisDashboard](https://github.com/nodokaha/MarusansiBasisDashboard) by nodokaha.
+- [Basis-TCP-Transport-Package](https://github.com/dooly123/Basis-TCP-Transport-Package) by dooly123,
+  the WebSocket transport.
+- [Caddy](https://caddyserver.com), for TLS in front of web players.
 - [basispm-build-awesome](https://github.com/nodokaha/basispm-build-awesome) by nodokaha, for the
   "build the server straight from upstream" idea.
 - The prop-safe portal script was tested by the Splat project's Basis tooling.

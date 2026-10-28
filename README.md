@@ -13,7 +13,8 @@ own name (`forest.worlds.example.com`), using DNS SRV records. Players type a na
   Compose file and each server's world config.
 - **Basis isn't forked.** The server is built from a pinned commit of upstream `Basis Server/`.
 - **DNS records are generated** for you to import.
-- **Optional extras:** portals between worlds (a tested prop script) and per-world admin dashboards.
+- **Optional extras:** portals between worlds (a tested prop script), per-world admin dashboards,
+  and web players (WebSocket behind a generated Caddy TLS front).
 
 **Start here: [the tutorial](docs/tutorial.md).**
 

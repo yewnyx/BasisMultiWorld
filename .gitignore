@@ -1,4 +1,5 @@
 .env
 basis/
+caddy/
 docker-compose.yml
 worlds/

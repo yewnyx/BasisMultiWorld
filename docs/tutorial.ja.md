@@ -32,6 +32,7 @@ city.worlds.example.com     →  City    (UDP 4298)
 ## 1. サーバーの準備
 
 ファイアウォールで各ワールドの UDP ポートを開けます。最初のワールドが 4296 で、以降1ワールドごとに1つ増えます。
+Web プレイヤーを受け入れる場合（9章）は、TCP の 80・443・4296 と各ワールドのポートも開けます。
 それ以外は公開しないでください。SSH はできれば VPN（Tailscale など）経由にします。
 Docker Engine と compose プラグインをインストールします。
 
@@ -161,13 +162,68 @@ SSH トンネルか、Tailscale の `tailscale serve --bg --http=4000 http://127
   ```sh
   sudo docker compose stop && sudo ./add-admin.sh did:key:z6Mk... && sudo docker compose up -d
   ```
+- **デフォルトライブラリ**：管理者がクライアントの「Admin > Default library」で追加したアバターやプロップは、
+  そのワールドにいる間、訪問者全員のライブラリに表示されます（誰かのアバターが勝手に変わることはありません）。
+  リストはワールドごとに `worlds/<スラッグ>/defaultlibrary/` の XML ファイルとして保存されます。
+  全ワールドで同じリストにするには、ファイルをコピーしてから `sudo docker compose restart` を実行します。
+  リストは起動時に読み込まれます。
 - **バックアップ**：残すべきものは `.env` と、`worlds/*/config`（管理者・権限）、`worlds/*/storage`
-  （プレイヤーのセーブ）、`worlds/*/initialresources`（サーバーに保存したプロップ）です。合計で数 KB 程度です。
-  毎日バックアップを取り（restic が便利です）、サーバーを作り直しても消えないディスクに置いてください。
+  （プレイヤーのセーブ）、`worlds/*/initialresources`（サーバーに保存したプロップ）、`worlds/*/defaultlibrary` です。
+  合計で数 KB 程度です。毎日バックアップを取り（restic が便利です）、サーバーを作り直しても消えないディスクに置いてください。
 - **Basis の更新**：`.env` の `BASIS_REF` を変えて、`./fetch-basis.sh && sudo docker compose up -d --build` を実行します。
 - **ワールドのバンドルの差し替え**：CDN も Basis クライアントも URL 単位でキャッシュします。
   クライアントは同じ名前のファイルの更新を確認しません。新しいファイル名でアップロードして `worlds.conf` を更新するか、
   CDN をパージしたうえで、既にそのワールドを読み込んだプレイヤーには古い版が残る場合があると理解しておいてください。
+
+## 9. 任意：Web プレイヤー
+
+Basis はブラウザでも動きます。ブラウザは UDP を送れないため、Web プレイヤーは WebSocket で接続します。
+また、`https://` のページから開けるのは `wss://` だけです。この機能を有効にすると、次のようになります。
+
+- **各ワールドが WebSocket でも待ち受けます。**
+  [Basis-TCP-Transport-Package](https://github.com/dooly123/Basis-TCP-Transport-Package) を使い、
+  `fetch-basis.sh` がこれをサーバーに組み込みます。待ち受けはコンテナ内部だけです。
+- **外部との窓口は [Caddy](https://caddyserver.com) のコンテナです。** ワールド名ごとに Let's Encrypt
+  の証明書を取得し、名前ごとにそのワールドへ振り分けます。ブラウザは SRV レコードを引けないため、
+  Web クライアントはポートなしの名前を `wss://<名前>:4296/` に変換します。Caddy は 4296（と 443）で受けて
+  名前で振り分けるので、ワールド名の入力もポータルも、ブラウザでデスクトップと同じように動きます。
+  他のワールドのポートでは、UDP と同様にポート番号で振り分けます。
+- **ネイティブクライアントも使えます。** UDP が遮断されたネットワークでは
+  `wss://forest.worlds.example.com` で接続できます。
+
+有効にする手順：
+
+1. **`.env` で** `WEB_PLAYERS=yes` にします（`DNS_ZONE` には実際のドメインが必要です）。
+   必要なら `WEB_CLIENT_URL` に Web クライアントの置き場所（手順4）を設定します。
+   すると、ブラウザで `https://forest.worlds.example.com` を開いたとき、そのワールドに参加する設定でクライアントに転送されます。
+2. **ファイアウォールで TCP** の 80・443・4296 と各ワールドのポートを開けます。80 は証明書の取得用です。
+3. **反映します。** `./configure.sh && sudo docker compose down && sudo docker compose up -d`
+   を実行します。`down` は最初の1回だけ必要です。compose のネットワークが固定サブネットになり、
+   ワールドはそこからの情報だけを信用してプレイヤーの実アドレスを知るためです。証明書は
+   `sudo docker compose logs caddy | grep "certificate obtained"` で確認できます。
+4. **Web クライアントを置きます。** 上流の CI がコミットごとにビルドしています。自分の `BASIS_REF` に対応する
+   `compilation.yml` の実行から `Basis-Client-WebGL` アーティファクトをダウンロードします。例：
+   `gh run download <run-id> -R BasisVR/Basis -n Basis-Client-WebGL -D web`。
+   アーティファクトは約 90 日で消えるので、コピーを残してください。
+   - **CDN か静的ホスティングに、専用の `https://` の名前で置きます**（例：`play.worlds.example.com`）。
+     Basis のサーバーには置かないでください。約 120 MB あり、ゲームサーバーから遠いプレイヤーへの帯域は細いことがあります。
+   - **置き場所は1つのアドレスに固定します。** ブラウザはクライアントの設定やキャッシュをサイトごとに保存します。
+   - **必要なヘッダー**：`*.unityweb` に `Content-Encoding: br`、`*.wasm.unityweb` に
+     `Content-Type: application/wasm`。Bunny では、条件を「Request URL」にしたエッジルールで設定します。
+     「File Extension」条件は最後の拡張子しか見ないため使えません。スレッドを使わないビルドなので COOP/COEP は不要です。
+5. **バンドルの置き場所で CORS を許可します。** Web クライアントは別サイトから `.BEE` を取得します。
+   - `Access-Control-Allow-Origin: *`（公開バンドルならこれで問題ありません）
+   - `Access-Control-Allow-Headers: Range, If-None-Match, If-Modified-Since`
+   - `Access-Control-Expose-Headers: Content-Range, ETag`
+
+   ブラウザの `OPTIONS` プリフライトには 405 ではなく 2xx を返す必要があります。設定は必ず1か所だけにしてください。
+   `Access-Control-Allow-Origin` が2つ付くと（CDN と、その手前のプロキシの両方で付けた場合など）CORS が失敗します。
+6. **ワールドとプロップを Web 向けにもビルドします。** SDK で WebGL プラットフォームを含めてください。
+   WebGL のセクションがないバンドルはブラウザで読み込めません。
+
+Web クライアントには WebGPU と 64 ビット WebAssembly が必要です。つまりデスクトップ版の Chrome か Edge です。
+プレイヤーは `https://play.worlds.example.com/?connection=forest.worlds.example.com` で参加します。
+`WEB_CLIENT_URL` を設定していれば、ワールド名を開くだけで参加できます。
 
 ## トラブルシューティング
 
@@ -178,6 +234,9 @@ SSH トンネルか、Tailscale の `tailscale serve --bg --http=4000 http://127
 | `curl localhost:1066x/health` が 404 か無応答 | `configure.sh` を再実行してください。生成されるファイルは `HealthCheckHost: "*"` を設定します。既定の `localhost` はコンテナ内では使えません。 |
 | 「サーバーに保存」が失敗する | `initialresources` が書き込み可能である必要があります。上流付属の compose は読み取り専用でマウントしています。 |
 | まったく接続できない | ファイアウォールで UDP ポートが開いていないか、Cloudflare のプロキシがオンになっています。 |
+| Web：初回だけ「Set a username before joining a server」と出る | 上流の既知の問題です。`?connection=` 付きのリンクは、プレイヤー名が決まる前に接続しようとします。一度 Servers メニューで名前を設定して参加すれば、ブラウザが覚えます。リンクに `&name=Guest` を付けても回避できます。 |
+| Web：接続はできるがワールドが表示されない | バンドルに WebGL のセクションがないか、置き場所が CORS を許可していません（ブラウザのコンソールを確認してください）。 |
+| Caddy が証明書を取得できない | TCP 80 か 443 が閉じているか、その名前がこのサーバーを指していません。証明書が取得されるのは `worlds.conf` にある名前だけです。 |
 
 ## SRV 解決の動き
 
@@ -188,11 +247,15 @@ SSH トンネルか、Tailscale の `tailscale serve --bg --http=4000 http://127
 - **レコードがない場合**：`<名前>:4296` に接続します。ワイルドカードの A レコードがあれば、
   未知の名前や解決に失敗した名前はハブに着きます。
 - **キャッシュ**：結果はレコードの TTL（最大5分）の間キャッシュされます。
+- **Web クライアント**：ブラウザは DNS パケットを送れないため、問い合わせは何も表示されずに失敗し、
+  `<名前>:4296` に接続します。Web プレイヤーを有効にしている場合は、Caddy の名前による振り分けが SRV の代わりになります。
 
 ## クレジット
 
 - [Basis](https://github.com/BasisVR/Basis)（BasisVR、MIT）。このリポジトリはそのサーバーをビルドするだけです。
 - [MarusansiBasisDashboard](https://github.com/nodokaha/MarusansiBasisDashboard)（nodokaha）。
+- [Basis-TCP-Transport-Package](https://github.com/dooly123/Basis-TCP-Transport-Package)（dooly123）。WebSocket トランスポート。
+- [Caddy](https://caddyserver.com)。Web プレイヤー向けの TLS。
 - [basispm-build-awesome](https://github.com/nodokaha/basispm-build-awesome)（nodokaha）。上流から直接サーバーを
   ビルドするという発想をここから得ました。
 - プロップ用ポータルスクリプトの動作確認は Splat プロジェクトの Basis ツールで行いました。
