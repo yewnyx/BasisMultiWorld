@@ -111,6 +111,11 @@ dig +short A forest.worlds.example.com                 # → your IPv4
 In the client, connect to `worlds.example.com` with no port. You should land in the hub, as admin.
 Then try `forest.worlds.example.com`.
 
+![A hub in desktop Chrome, with two portal doors](images/hub.jpg)
+
+*A hub set up this way, in desktop Chrome. [Open it yourself](https://play.basis.yewnyx.net/?connection=basis.yewnyx.net&name=Guest)
+to join as "Guest".*
+
 ## 6. Portals between worlds
 
 A portal is a small prop with a door that sends the player to another world.
@@ -144,6 +149,16 @@ Players press the door, see the destination address and confirm. The prompt alwa
 `<name>:4296` even when SRV sends them to another port; that's expected. Basis's built-in "rift"
 portals also work, but they disappear when the server restarts.
 
+<p>
+  <img src="images/portal-door.jpg" width="49%" alt="Aiming at a portal door outlines it">
+  <img src="images/portal-dialog.jpg" width="49%" alt="The Switch Server? prompt for commute.basis.yewnyx.net:4296">
+</p>
+
+*Left: aim at the door and it lights up. Right: pressing it asks first. The address shows port 4296
+whichever port the world really uses.*
+
+To move saved portals to a new build later, use `repoint-prop.sh` (section 8).
+
 ## 7. Optional: admin dashboard
 
 Each world can get a [MarusansiBasisDashboard](https://github.com/nodokaha/MarusansiBasisDashboard),
@@ -159,6 +174,11 @@ The dashboards listen on the server's own `127.0.0.1:4000` and up, one per world
 pages have no login and accept requests from any website. Never publish those ports.** Reach them
 through an SSH tunnel, or over Tailscale with `tailscale serve --bg --http=4000 http://127.0.0.1:4000`
 and an access rule limited to your own devices.
+
+![The dashboard's admin page](images/dashboard-en.png)
+
+*The admin page (`/admin`) of a hub with nobody connected. It follows the browser's language,
+English or Japanese, and the Language menu switches it.*
 
 ## 8. Running it
 
@@ -180,7 +200,14 @@ and an access rule limited to your own devices.
 - **Replacing a world bundle:** both your CDN and the Basis client cache by URL. The client never
   checks for a newer file under the same name. Either upload under a new file name and update
   `worlds.conf`, or purge your CDN and accept that players who already loaded the world may keep the
-  old copy.
+  old copy. For a new file name, `sudo ./deploy-world.sh forest` applies the change. It checks that
+  the new file is online and that nobody is in the world, then runs `configure.sh` and restarts that
+  world and its dashboard. `--check` only reports.
+- **Replacing a saved prop** (a portal, for example): upload the new build under a new file name,
+  then run `sudo ./repoint-prop.sh forest PortalToHub.BEE PortalToHub-v2.BEE` in each world that
+  saved it. It makes the same checks, copies the saved files to `worlds/<slug>/prop-backup-<time>/`,
+  and edits them while the world is stopped. The saved files contain the unlock password, so the
+  script never prints them. Delete the backup folder once the world works.
 
 ## 9. Optional: web players
 
@@ -216,7 +243,9 @@ Turning it on:
    - **Serve it from a CDN or static host under its own `https://` name,** such as
      `play.worlds.example.com`, not from the Basis server. It's about 120 MB, and a game server's
      bandwidth to distant players can be poor.
-   - **Keep it on that one address.** The browser stores the client's settings and cache per site.
+   - **Keep players on one address.** The browser stores the client's settings and its cached worlds
+     per page folder, so a new address starts players from scratch. To update the client without
+     changing it, see the next section.
    - **Headers it needs:** `Content-Encoding: br` on `*.unityweb`, and `Content-Type: application/wasm`
      on `*.wasm.unityweb`. On Bunny, set these with edge rules on a Request URL condition; Bunny's File
      Extension condition only sees the last extension. COOP/COEP aren't needed (the build has no threads).
@@ -233,7 +262,33 @@ Turning it on:
 The web client needs WebGPU and 64-bit WebAssembly: desktop Chrome, Edge or Firefox (Firefox was
 tested on Windows). Players join with
 `https://play.worlds.example.com/?connection=forest.worlds.example.com`, or just open the world's name
-if `WEB_CLIENT_URL` is set.
+if `WEB_CLIENT_URL` is set. For a live example, open
+[play.basis.yewnyx.net](https://play.basis.yewnyx.net/?connection=basis.yewnyx.net&name=Guest), which
+joins its hub as "Guest".
+
+### Updating the web client without breaking it
+
+These traps were all found on a live deployment:
+
+- **Put each client build in its own folder, and never overwrite one,** for example `/basis-2f5b3e1/`.
+  Browsers and CDNs keep the large files for a long time, and a CDN's storage copies can serve the old
+  file for a while after an overwrite. Keep the previous folder for rolling back.
+- **Have one page at the root load the current folder.** Copy the build's `index.html` and
+  `TemplateData/` to the root, and change two paths in the page: `var buildUrl = "Build"` becomes
+  `"/basis-2f5b3e1/Build"`, and `streamingAssetsUrl: "StreamingAssets"` becomes
+  `"/basis-2f5b3e1/StreamingAssets"`. An update then changes only those two paths, and players keep
+  their settings and cached worlds. A page inside each build folder would start them from scratch every
+  time.
+- **Don't let browsers cache that page.** Serve `index.html` and the bare `/` with
+  `Cache-Control: no-cache`, so browsers check for a new copy on every visit. The build folders can keep
+  long cache times. After replacing the page, purge it on the CDN: Bunny caches `/` and `/index.html`
+  separately, so purge both. On Bunny, an edge rule with the Request URL conditions `*/` and `*.html`
+  can set the header. In Bunny's patterns `?` matches any one character, so a pattern like `*/?*`
+  matches every file.
+- **Link to the root page, not into build folders.** If you do open a folder's own page, include the
+  trailing slash. Some hosts, Bunny among them, answer `/basis-2f5b3e1` without the slash with that
+  folder's page. Its relative `Build/` then points at the parent folder, which loads the wrong build or
+  none.
 
 ## Troubleshooting
 
@@ -247,6 +302,9 @@ if `WEB_CLIENT_URL` is set.
 | Web: "Set a username before joining a server" on the first visit | A known upstream issue: a `?connection=` link connects before the player has a name. Set a name and join once from the Servers menu; the browser remembers it. Adding `&name=Guest` to links also avoids it. |
 | Web: "Your browser does not support WebAssembly Memory64" | Upstream's web build is 64-bit WebAssembly. Every browser on iPhone and iPad uses WebKit, which can't run it, and Safari can't either. Use desktop Chrome, Edge or Firefox. |
 | Web: connected, but the world never appears | The bundle has no WebGL section, or its host doesn't allow CORS (check the browser console). |
+| Web: players still get the old client after an update | The entry page was cached. Serve it with `Cache-Control: no-cache` and purge it on the CDN (see "Updating the web client without breaking it"). |
+| Web: a build folder's address without the final `/` loads the wrong build | The host serves the folder's page there, and its relative paths point at the parent folder. Link with the slash, or to the root page. |
+| A new build of a world or prop doesn't reach some players | It was uploaded under the same name, and the client and the CDN cache by URL. Upload it under a new name and switch with `deploy-world.sh` or `repoint-prop.sh`. |
 | Caddy gets no certificate | TCP 80 or 443 is closed, or the name doesn't point at this server. Only names from `worlds.conf` get certificates. |
 
 ## How the SRV lookup behaves

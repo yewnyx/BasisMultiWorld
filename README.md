@@ -2,7 +2,7 @@
 
 [日本語](README.ja.md)
 
-> **Status: snapshot (2026-10-28).** Built and tested against Basis `2f5b3e106`. This isn't
+> **Status: snapshot (2026-10-30).** Built and tested against Basis `2f5b3e106`. This isn't
 > maintained on a schedule, and Basis moves fast, so check upstream before relying on it. Issues
 > and pull requests are welcome but may wait.
 
@@ -15,6 +15,11 @@ own name (`forest.worlds.example.com`), using DNS SRV records. Players type a na
 - **DNS records are generated** for you to import.
 - **Optional extras:** portals between worlds (a tested prop script), per-world admin dashboards,
   and web players (WebSocket behind a generated Caddy TLS front).
+- **Safe updates:** `deploy-world.sh` and `repoint-prop.sh` move a world or a saved prop to a new
+  bundle after checking that it's online and that nobody is in that world.
+
+**Try it:** [open the hub of a live deployment](https://play.basis.yewnyx.net/?connection=basis.yewnyx.net&name=Guest)
+in desktop Chrome, Edge or Firefox. You join as "Guest".
 
 **Start here: [the tutorial](docs/tutorial.md).**
 
