@@ -336,7 +336,7 @@ What we saw on an iPhone 17 Pro (Safari 26) with such a build:
   </script>
   ```
 - **Portal doors can't be tapped.** Upstream's touch input never presses buttons in the world; menus
-  and the on-screen sticks work. The live deployment's phone build carries a small local fix for this.
+  and the on-screen sticks work.
 - **Memory is tight.** The client alone uses about 775 MB. Worlds that add little to that loaded fine,
   and one that needed about 900 MB in all crashed the tab. Keep web sections light.
 - **Textures:** BC-compressed textures need an iPhone 15 Pro or later, or an M-series iPad. ASTC works
