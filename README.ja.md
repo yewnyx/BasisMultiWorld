@@ -21,7 +21,7 @@
 
 **試してみる：** デスクトップ版の Chrome、Edge、Firefox で
 [ライブ環境のハブを開く](https://play.basis.yewnyx.net/?connection=basis.yewnyx.net&name=Guest)と、
-「Guest」として参加できます。
+「Guest」として参加できます。iPhone・iPad では試験的な 32 ビット版が開きます。
 
 **まずは[チュートリアル](docs/tutorial.ja.md)をご覧ください。**
 

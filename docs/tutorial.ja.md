@@ -253,7 +253,8 @@ Basis はブラウザでも動きます。ブラウザは UDP を送れないた
 6. **ワールドとプロップを Web 向けにもビルドします。** SDK で WebGL プラットフォームを含めてください。
    WebGL のセクションがないバンドルはブラウザで読み込めません。
 
-Web クライアントには WebGPU と 64 ビット WebAssembly が必要です。つまりデスクトップ版の Chrome、Edge、Firefox です（Firefox は Windows で確認済み）。
+上流の Web クライアントには WebGPU と 64 ビット WebAssembly が必要です。つまりデスクトップ版の Chrome、Edge、Firefox です（Firefox は Windows で確認済み）。
+iPhone・iPad については、下の「iPhone・iPad 向けの 32 ビット版」を参照してください。
 プレイヤーは `https://play.worlds.example.com/?connection=forest.worlds.example.com` で参加します。
 `WEB_CLIENT_URL` を設定していれば、ワールド名を開くだけで参加できます。
 実際の例として、[play.basis.yewnyx.net](https://play.basis.yewnyx.net/?connection=basis.yewnyx.net&name=Guest)
@@ -270,7 +271,7 @@ Web クライアントには WebGPU と 64 ビット WebAssembly が必要です
   ページ内の2か所のパスを変えます。`var buildUrl = "Build"` を `"/basis-2f5b3e1/Build"` に、
   `streamingAssetsUrl: "StreamingAssets"` を `"/basis-2f5b3e1/StreamingAssets"` にします。
   更新時に変えるのはこの2か所だけになり、プレイヤーは設定とキャッシュしたワールドを引き継げます。
-  ビルドのフォルダ内のページを使うと、更新のたびに最初からになります。
+  ビルドのフォルダ内のページを使うと、更新のたびに最初からになります。同じページで2つのビルドから選ぶこともできます（次の節）。
 - **そのページはブラウザにキャッシュさせません。** `index.html` とスラッシュだけの `/` を `Cache-Control: no-cache` で返し、
   毎回新しい版を確認させます。ビルドのフォルダは長いキャッシュ期間のままで構いません。ページを差し替えたら CDN でパージします。
   Bunny は `/` と `/index.html` を別々にキャッシュするので、両方パージしてください。Bunny では、Request URL の条件を
@@ -279,6 +280,58 @@ Web クライアントには WebGPU と 64 ビット WebAssembly が必要です
 - **リンクはルートのページに向け、ビルドのフォルダには向けません。** フォルダのページを開く場合は、末尾のスラッシュを付けてください。
   Bunny などのホストは、スラッシュなしの `/basis-2f5b3e1` にもそのフォルダのページを返します。すると相対パスの `Build/` が
   親フォルダを指し、別のビルドが読み込まれるか、何も読み込まれません。
+
+### iPhone・iPad 向けの 32 ビット版
+
+上流の CI がビルドするのは 64 ビットの WebAssembly だけで、クライアントは最大 16 GB のメモリを使えます。
+WebKit はまだ Memory64 に対応しておらず、iPhone・iPad のブラウザはすべて WebKit です。Mac の Safari も同様です。
+最大 4 GB の 32 ビット版なら、これらでも起動します。上のライブ環境では、スマートフォンとタブレットに 32 ビット版を渡しています。
+自分の `BASIS_REF` から、プロジェクトが指定する Unity のバージョン（`2f5b3e106` では 6000.7.0b6）で自分でビルドします。
+
+1. **WebSocket パッケージを追加します。** `Basis/Packages/manifest.json` に次の行を加えます（CI は Web のジョブでだけ追加しています）。
+   `"com.basis.transport.websocket": "https://github.com/dooly123/Basis-TCP-Transport-Package.git#<WEBSOCKET_REF>",`
+2. **32 ビットにします。** `Basis/Packages/com.basis.framework.editor/Editor/BasisWebBuild.cs` の
+   `Wasm64MaximumMemoryMegabytes` を `4096` にします。最大メモリが 4 GB 以下なら、Unity は 32 ビットの WebAssembly をビルドします。
+3. **起動時にメモリを確保しておくことも検討してください。** 同じファイルの `maximumMemorySize` の隣に
+   `PlayerSettings.WebGL.initialMemorySize = 1024;` を加えます。iPhone でワールドの読み込み中にタブが落ちたのは、
+   そのときのメモリ拡張が原因の可能性が高いと見ています。
+4. **ビルド：** `Unity -batchmode -nographics -quit -projectPath Basis -buildTarget WebGL -executeMethod BasisWebBuild.BuildWeb -customBuildPath <出力フォルダ>`
+
+64 ビット版の隣に別のフォルダとして置き、ルートのページに選ばせます。ライブ環境では、Memory64 に対応したデスクトップのブラウザにだけ
+64 ビット版を渡し、スマートフォンを含むそれ以外には 32 ビット版を渡しています。
+
+```js
+var memory64 = false;   // Unity の 64 ビット版ローダーと同じ判定
+try { memory64 = WebAssembly.validate(new Uint8Array([0,97,115,109,1,0,0,0,5,8,1,5,128,128,4,128,128,16,7,7,1,3,109,101,109,2,0])); } catch (e) {}
+var mobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
+  (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);   // iPadOS は Mac を名乗る
+var folder = memory64 && !mobile ? "/basis-2f5b3e1/" : "/basis-2f5b3e1-wasm32/";
+var buildUrl = folder + "Build";   // streamingAssetsUrl も folder + "StreamingAssets" に
+```
+
+iPhone 17 Pro（Safari 26）でこのビルドを使って分かったこと：
+
+- **起動時に「EncodingError: Decoding failed」のアラートが出ます。** とても短い効果音が Web 向けには空の AAC ファイルになり、
+  WebKit がそのデコードを拒否します。Unity のローダーはそれをアラートにします。ページの先頭近く、ローダーが動き出す前に
+  次のスクリプトを入れてください。その効果音が鳴らないだけで済みます。
+  ```html
+  <script>
+    ["unhandledrejection", "error"].forEach(function (type) {
+      window.addEventListener(type, function (e) {
+        var r = e.reason || e.error;
+        if (r && (r.name === "EncodingError" || /Decoding failed/.test(String(r)))) { e.preventDefault(); e.stopImmediatePropagation(); }
+      });
+    });
+  </script>
+  ```
+- **ポータルの扉をタップできません。** 上流のタッチ入力は、ワールド内のボタンを押しません。メニューと画面上のスティックは使えます。
+  ライブ環境のスマートフォン向けビルドには、これを直す小さな独自の修正が入っています。
+- **メモリに余裕がありません。** クライアントだけで約 775 MB を使います。それにほとんど上乗せしないワールドは問題なく読み込めましたが、
+  合計で約 900 MB を必要としたワールドではタブが落ちました。Web のセクションは軽くしてください。
+- **テクスチャ：** BC 圧縮のテクスチャには iPhone 15 Pro 以降か、M シリーズの iPad が必要です。ASTC はすべての機種で使えます。
+- **シェーダー：** Safari は WebGPU の「シェーダーの関数内の変数は合計 8,192 バイトまで」という制限を守らせますが、
+  デスクトップの Chrome は守らせません。関数の中に大きな定数配列があるシェーダーは、Apple の端末でだけ失敗します。
+- Android のスマートフォンと Mac の Safari は試していません。
 
 ## トラブルシューティング
 
@@ -290,7 +343,7 @@ Web クライアントには WebGPU と 64 ビット WebAssembly が必要です
 | 「サーバーに保存」が失敗する | `initialresources` が書き込み可能である必要があります。上流付属の compose は読み取り専用でマウントしています。 |
 | まったく接続できない | ファイアウォールで UDP ポートが開いていないか、Cloudflare のプロキシがオンになっています。 |
 | Web：初回だけ「Set a username before joining a server」と出る | 上流の既知の問題です。`?connection=` 付きのリンクは、プレイヤー名が決まる前に接続しようとします。一度 Servers メニューで名前を設定して参加すれば、ブラウザが覚えます。リンクに `&name=Guest` を付けても回避できます。 |
-| Web：「Your browser does not support WebAssembly Memory64」と出る | 上流の Web ビルドは 64 ビットの WebAssembly です。iPhone・iPad のブラウザはすべて WebKit で動いていて、これを実行できません。Safari も同様です。デスクトップ版の Chrome、Edge、Firefox を使ってください。 |
+| Web：「Your browser does not support WebAssembly Memory64」と出る | ブラウザが上流の 64 ビット版を受け取っています。WebKit（iPhone・iPad のすべてのブラウザと Mac の Safari）はまだこれを実行できません。デスクトップ版の Chrome、Edge、Firefox を使うか、32 ビット版も置いてください（「iPhone・iPad 向けの 32 ビット版」を参照）。 |
 | Web：接続はできるがワールドが表示されない | バンドルに WebGL のセクションがないか、置き場所が CORS を許可していません（ブラウザのコンソールを確認してください）。 |
 | Web：更新後もプレイヤーに古いクライアントが表示される | 入口のページがキャッシュされています。`Cache-Control: no-cache` で返し、CDN でパージしてください（「Web クライアントの更新で失敗しないために」を参照）。 |
 | Web：ビルドのフォルダのアドレスを末尾の `/` なしで開くと、別のビルドが読み込まれる | ホストがそのアドレスにフォルダのページを返し、ページ内の相対パスが親フォルダを指しています。スラッシュを付けるか、ルートのページにリンクしてください。 |

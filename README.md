@@ -19,7 +19,8 @@ own name (`forest.worlds.example.com`), using DNS SRV records. Players type a na
   bundle after checking that it's online and that nobody is in that world.
 
 **Try it:** [open the hub of a live deployment](https://play.basis.yewnyx.net/?connection=basis.yewnyx.net&name=Guest)
-in desktop Chrome, Edge or Firefox. You join as "Guest".
+in desktop Chrome, Edge or Firefox, or try an experimental 32-bit build on iPhone and iPad. You join
+as "Guest".
 
 **Start here: [the tutorial](docs/tutorial.md).**
 

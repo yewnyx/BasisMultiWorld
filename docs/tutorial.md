@@ -259,8 +259,9 @@ Turning it on:
 6. **Build your worlds and props for the web.** Include the WebGL platform in the SDK. A bundle without
    a WebGL section can't load in a browser.
 
-The web client needs WebGPU and 64-bit WebAssembly: desktop Chrome, Edge or Firefox (Firefox was
-tested on Windows). Players join with
+Upstream's web client needs WebGPU and 64-bit WebAssembly: desktop Chrome, Edge or Firefox (Firefox
+was tested on Windows). For iPhone and iPad, see "A 32-bit build for iPhone and iPad" below. Players
+join with
 `https://play.worlds.example.com/?connection=forest.worlds.example.com`, or just open the world's name
 if `WEB_CLIENT_URL` is set. For a live example, open
 [play.basis.yewnyx.net](https://play.basis.yewnyx.net/?connection=basis.yewnyx.net&name=Guest), which
@@ -278,7 +279,7 @@ These traps were all found on a live deployment:
   `"/basis-2f5b3e1/Build"`, and `streamingAssetsUrl: "StreamingAssets"` becomes
   `"/basis-2f5b3e1/StreamingAssets"`. An update then changes only those two paths, and players keep
   their settings and cached worlds. A page inside each build folder would start them from scratch every
-  time.
+  time. The same page can also choose between two builds (see the next section).
 - **Don't let browsers cache that page.** Serve `index.html` and the bare `/` with
   `Cache-Control: no-cache`, so browsers check for a new copy on every visit. The build folders can keep
   long cache times. After replacing the page, purge it on the CDN: Bunny caches `/` and `/index.html`
@@ -290,6 +291,60 @@ These traps were all found on a live deployment:
   folder's page. Its relative `Build/` then points at the parent folder, which loads the wrong build or
   none.
 
+### A 32-bit build for iPhone and iPad
+
+Upstream CI only builds 64-bit WebAssembly, which lets the client use up to 16 GB. WebKit has no
+Memory64 yet, and every browser on iPhone and iPad is WebKit, as is Safari on the Mac. A 32-bit build,
+limited to 4 GB, does start there; the live deployment above gives one to phones and tablets. Build it
+yourself from your `BASIS_REF`, with the Unity version the project names (6000.7.0b6 at `2f5b3e106`):
+
+1. **Add the WebSocket package** to `Basis/Packages/manifest.json` (CI adds it only for its web job):
+   `"com.basis.transport.websocket": "https://github.com/dooly123/Basis-TCP-Transport-Package.git#<WEBSOCKET_REF>",`
+2. **Make it 32-bit:** in `Basis/Packages/com.basis.framework.editor/Editor/BasisWebBuild.cs`, set
+   `Wasm64MaximumMemoryMegabytes` to `4096`. With a maximum of 4 GB, Unity builds 32-bit WebAssembly.
+3. **Consider reserving memory at startup:** in the same file, next to `maximumMemorySize`, add
+   `PlayerSettings.WebGL.initialMemorySize = 1024;`. Growing the heap while a world loads is a likely
+   cause of the tab crashes we saw on an iPhone.
+4. **Build:** `Unity -batchmode -nographics -quit -projectPath Basis -buildTarget WebGL -executeMethod BasisWebBuild.BuildWeb -customBuildPath <output folder>`
+
+Put it in its own folder beside the 64-bit build, and let the root page choose. The live deployment
+gives the 64-bit build only to desktop browsers with Memory64, and the 32-bit build to everything
+else, phones included:
+
+```js
+var memory64 = false;   // the same check Unity's 64-bit loader makes
+try { memory64 = WebAssembly.validate(new Uint8Array([0,97,115,109,1,0,0,0,5,8,1,5,128,128,4,128,128,16,7,7,1,3,109,101,109,2,0])); } catch (e) {}
+var mobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
+  (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);   // iPadOS reports a Mac
+var folder = memory64 && !mobile ? "/basis-2f5b3e1/" : "/basis-2f5b3e1-wasm32/";
+var buildUrl = folder + "Build";   // and streamingAssetsUrl: folder + "StreamingAssets"
+```
+
+What we saw on an iPhone 17 Pro (Safari 26) with such a build:
+
+- **An "EncodingError: Decoding failed" alert at startup.** One very short sound encodes for the web
+  as an empty AAC file, and WebKit refuses to decode it; Unity's loader turns that into an alert. Add
+  this near the top of the page, before the loader starts. The sound just stays silent.
+  ```html
+  <script>
+    ["unhandledrejection", "error"].forEach(function (type) {
+      window.addEventListener(type, function (e) {
+        var r = e.reason || e.error;
+        if (r && (r.name === "EncodingError" || /Decoding failed/.test(String(r)))) { e.preventDefault(); e.stopImmediatePropagation(); }
+      });
+    });
+  </script>
+  ```
+- **Portal doors can't be tapped.** Upstream's touch input never presses buttons in the world; menus
+  and the on-screen sticks work. The live deployment's phone build carries a small local fix for this.
+- **Memory is tight.** The client alone uses about 775 MB. Worlds that add little to that loaded fine,
+  and one that needed about 900 MB in all crashed the tab. Keep web sections light.
+- **Textures:** BC-compressed textures need an iPhone 15 Pro or later, or an M-series iPad. ASTC works
+  on all of them.
+- **Shaders:** Safari enforces WebGPU's limit of 8,192 bytes of variables in a shader function, and
+  desktop Chrome doesn't. A large constant array inside a function fails only on Apple devices.
+- Android phones and Safari on the Mac weren't tested.
+
 ## Troubleshooting
 
 | Symptom | Cause |
@@ -300,7 +355,7 @@ These traps were all found on a live deployment:
 | "Save to server" fails | `initialresources` must be writable. The stock upstream compose file mounts it read-only. |
 | Players can't connect at all | The UDP port isn't open in the firewall, or Cloudflare's proxy is on for the record. |
 | Web: "Set a username before joining a server" on the first visit | A known upstream issue: a `?connection=` link connects before the player has a name. Set a name and join once from the Servers menu; the browser remembers it. Adding `&name=Guest` to links also avoids it. |
-| Web: "Your browser does not support WebAssembly Memory64" | Upstream's web build is 64-bit WebAssembly. Every browser on iPhone and iPad uses WebKit, which can't run it, and Safari can't either. Use desktop Chrome, Edge or Firefox. |
+| Web: "Your browser does not support WebAssembly Memory64" | The browser got upstream's 64-bit build. WebKit can't run it yet: every browser on iPhone and iPad, and Safari on the Mac. Use desktop Chrome, Edge or Firefox, or also host a 32-bit build (see "A 32-bit build for iPhone and iPad"). |
 | Web: connected, but the world never appears | The bundle has no WebGL section, or its host doesn't allow CORS (check the browser console). |
 | Web: players still get the old client after an update | The entry page was cached. Serve it with `Cache-Control: no-cache` and purge it on the CDN (see "Updating the web client without breaking it"). |
 | Web: a build folder's address without the final `/` loads the wrong build | The host serves the folder's page there, and its relative paths point at the parent folder. Link with the slash, or to the root page. |
