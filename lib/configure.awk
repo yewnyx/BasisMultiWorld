@@ -139,7 +139,7 @@ END {
     print "# no login and accept any origin: keep the ports on loopback, never publish them." > out
     print "x-dashboard: &dashboard" > out
     print "  build:" > out
-    print "    context: https://github.com/nodokaha/MarusansiBasisDashboard.git#${DASHBOARD_REF:-cb23088b1f38d0c9ff6223d2ec9760652a5eed94}" > out
+    print "    context: https://github.com/nodokaha/MarusansiBasisDashboard.git#${DASHBOARD_REF:-b6d76db10364af46889b2f896909ecdc7848d2e4}" > out
     print "  image: basis-dashboard:local" > out
     print "  restart: unless-stopped" > out
     print "  profiles: [dashboard]" > out
